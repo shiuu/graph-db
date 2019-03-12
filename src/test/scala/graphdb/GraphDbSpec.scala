@@ -2,8 +2,8 @@ package graphdb
 
 import akka.actor.{ActorSystem, Props}
 import akka.testkit.{ImplicitSender, TestKit}
-import graphdb.GraphDb.GraphDatabase
-import graphdb.GraphDb.GraphDatabase._
+import graphdb.GraphDb.GraphDbStore
+import graphdb.GraphDb.GraphDbStore._
 import org.scalatest.{BeforeAndAfterAll, WordSpecLike}
 
 class GraphDbSpec extends TestKit(ActorSystem("GraphDbSpec"))
@@ -17,7 +17,7 @@ class GraphDbSpec extends TestKit(ActorSystem("GraphDbSpec"))
 
   "A GraphDb actor" should { // test suite
     "create Employee type" in { // test case
-      val dbActor = system.actorOf(Props[GraphDatabase])
+      val dbActor = system.actorOf(Props[GraphDbStore])
       val msg = CreateType("Employee", Map())
       dbActor ! msg
 

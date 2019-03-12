@@ -3,9 +3,8 @@ package graphdb.models
 import java.util.UUID
 
 object GraphDbDef {
-//  type RID =
 
-  case class Relation(id: Int, ownerType: String, name: String, targetTypes: Seq[String])
+  case class Relation(id: Int, name: String, ownerType: String, targetTypes: Seq[String])
 
   /**
     * A link is a directional relation from one node to one or more nodes.
@@ -23,5 +22,8 @@ object GraphDbDef {
     * @param links links contains all the directed edges that starts from this node. It
     *              is a map from relation id to Link.
     */
-  case class Node(id: UUID, typeName: String, fields: Map[String, Any], links: Map[Int, Link] = Map())
+  case class Node(id: UUID = null,
+                  typeName: String = "",
+                  fields: Map[String, Any] = Map(),
+                  links: Map[Int, Link] = Map())
 }
