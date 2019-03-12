@@ -25,5 +25,8 @@ object GraphDbDef {
   case class Node(id: UUID = null,
                   typeName: String = "",
                   fields: Map[String, Any] = Map(),
-                  links: Map[Int, Link] = Map())
+                  //                  links: Map[Int, Link] = Map()
+                  linksOwned:     Set[Link] = Set(),
+                  linksToThis:    Set[Link] = Set()
+                 )
 }

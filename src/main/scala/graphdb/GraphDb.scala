@@ -4,8 +4,8 @@ import java.util.UUID
 
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import akka.persistence.PersistentActor
-import graphdb.models.{FieldType, NodeCreated, RTypeCreated, TypeCreated}
-import graphdb.models.GraphDbDef.{Node, Relation}
+import graphdb.models._
+import graphdb.models.GraphDbDef.{Link, Node, Relation}
 
 object GraphDb {
   object GraphDbStore {
@@ -35,12 +35,12 @@ object GraphDb {
     case class CreateRelation(relationName: String, ownerTypeName: String, targetTypes: Seq[String])
 
     /**
-      * Add a directional relation to an node.
+      * Add a directional relation from an node to one or more nodes.
       * @param ownerNode The source of the directional relation.
       * @param relationId
       * @param targetNodes The target of the
       */
-    case class LinkMsg(ownerNode: UUID, relationId: Int, targetNodes: Seq[UUID])
+    case class LinkMsg(ownerNodeId: UUID, relationId: Int, targetNodes: Seq[UUID])
     case class UnlinkByLinkId(linkId: UUID)
 
     case object Shutdown
@@ -114,15 +114,16 @@ object GraphDb {
         // TODO need to verify
         //  1. the relation does not exist yet
         //  2. targetTypes is not empty
-//        val id = UUID.randomUUID
-        persist(RTypeCreated(latestRid, relationName, ownerTypeName, targetTypes)){ _ =>
+
+        persist(RTypeCreated(latestRid, relationName, ownerTypeName, targetTypes)){ e =>
           relationMap += (latestRid -> Relation(latestRid, relationName, ownerTypeName, targetTypes))
           latestRid += 1;
+          log.info(s"Persisted $e")
         }
       case AddNode(typeName, attributes) =>
         typeMap.get(typeName) match {
           case Some(_) =>
-            // TODO: verify attributes
+            // TODO: validate attributes
             val id = UUID.randomUUID()
             persist(NodeCreated(id, typeName, attributes)){ _ =>
               nodeMap += id -> Node(id, typeName, attributes)
@@ -139,6 +140,7 @@ object GraphDb {
               val newAttributes = node.fields ++ attributes
               val newNode = node.copy(fields = newAttributes)
               nodeMap += (newNode.id -> newNode)
+              log.info(s"Persisted UpdateAttOnNode $newNode")
             }
           case None =>
             sender() ! OperationFailure(s"Invalid node id $nodeId !")
@@ -151,9 +153,29 @@ object GraphDb {
               val newAttributes = node.fields -- attributes
               val newNode = node.copy(fields = newAttributes)
               nodeMap += (newNode.id -> newNode)
+              log.info(s"Persisted DeleteAttFromNode $newNode")
             }
           case None =>
             sender() ! OperationFailure(s"Invalid node id $nodeId !")
+        }
+      case LinkMsg(ownerNodeId, relationId, targetNodes) =>
+        nodeMap.get(ownerNodeId) match {
+          case Some(node) =>
+            // TODO : need to validate relationId and targetNodes
+            val id = UUID.randomUUID()
+            persist(LinkAdded(id, relationId, ownerNodeId, targetNodes)) { _ =>
+              val link = Link(id, relationId, ownerNodeId, targetNodes)
+              val newNode = node.copy(linksOwned = node.linksOwned + link)
+              nodeMap += ownerNodeId -> newNode
+
+              for {tarNodeId <- targetNodes
+                tarNode <- nodeMap.get(tarNodeId)
+              } nodeMap += tarNodeId -> tarNode.copy(linksToThis = tarNode.linksToThis + link)
+
+              log.info(s"Persisted LinkMsg $newNode")
+            }
+          case None =>
+            sender() ! OperationFailure(s"Invalid node id $ownerNodeId !")
         }
 
       case Shutdown => context.stop(self)
@@ -196,27 +218,44 @@ object GraphDb {
         val newAttributes = node.fields ++ attributes
         val newNode = node.copy(fields = newAttributes)
         nodeMap += (newNode.id -> newNode)
+        log.info(s"Recoverd UpdateAttOnNode $newNode")
       case DeleteAttFromNode(nodeId, attributes) =>
         val node = nodeMap.getOrElse(nodeId, Node())
         val newAttributes = node.fields -- attributes
         val newNode = node.copy(fields = newAttributes)
         nodeMap += (newNode.id -> newNode)
+        log.info(s"Recoverd DeleteAttFromNode $newNode")
+      case LinkAdded(linkId, rid, ownerId, targetNodes) =>
+        val node = nodeMap.getOrElse(ownerId, Node())
+        val link = Link(linkId, rid, ownerId, targetNodes)
+        val newNode = node.copy(linksOwned = node.linksOwned + link)
+        nodeMap += ownerId -> newNode
+
+        for {tarNodeId <- targetNodes
+             tarNode <- nodeMap.get(tarNodeId)
+        } nodeMap += tarNodeId -> tarNode.copy(linksToThis = tarNode.linksToThis + link)
+
+        log.info(s"Recoverd LinkAdded $newNode")
     }
 
     // TODO handle persist failure/rejection
   }
 
 //  def main(args: Array[String]){
-//    import graphdb.GraphDb.GraphDatabase._
+//    import graphdb.GraphDb.GraphDbStore._
 //
 //    val system = ActorSystem("dbSys")
-//    val db = system.actorOf(Props[GraphDatabase], "db")
+//    val db = system.actorOf(Props[GraphDbStore], "db")
 //    db ! CreateType("Employee", Map("Name" -> FieldType.Str, "Age" -> FieldType.Number))
 //    db ! CreateType("Business", Map())
 //    db ! AddAttToType("Business", "Location", FieldType.Str)
 //
 //    db ! AddNode("Employee", Map("Name" -> "Alice", "Age" -> 38))
+//    db ! AddNode("Employee", Map("Name" -> "Bob", "Age" -> 48))
 //
-//    println()
+//    db ! CreateRelation("FriendOf", "Employee", List("Employee"))
+
+//    db ! LinkMsg()
 //  }
+
 }
