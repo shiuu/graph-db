@@ -18,7 +18,7 @@ class GraphDbSpec extends TestKit(ActorSystem("GraphDbSpec"))
   "A GraphDb actor" should { // test suite
     "create Employee type" in { // test case
       val dbActor = system.actorOf(Props[GraphDatabase])
-      val msg = CreateType("Employee")
+      val msg = CreateType("Employee", Map())
       dbActor ! msg
 
       val reply = expectMsgType[CreationSuccess]

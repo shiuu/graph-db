@@ -1,4 +1,4 @@
-package graphdb
+package graphdb.models
 
 import enumeratum._
 
