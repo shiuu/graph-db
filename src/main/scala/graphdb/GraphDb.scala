@@ -4,8 +4,11 @@ import java.util.UUID
 
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import akka.persistence.PersistentActor
+//import akka.routing.FromConfig
+//import com.typesafe.config.ConfigFactory
+import graphdb.GraphDb.GraphDbStore.Shutdown
 import graphdb.models._
-import graphdb.models.GraphDbDef.{Link, Node, Relation}
+import graphdb.models.GraphDbDef._
 
 object GraphDb {
   object GraphDbStore {
@@ -16,7 +19,9 @@ object GraphDb {
     case class AddAttToType(typeName: String, attrName: String, attrType: FieldType)
     case class DeleteAttFromType(typeName: String, attrName: String)
 
-    case class CreationSuccess(name: String, typePath: String)
+    case class TypeCreationSuccess(message: String)
+    case class RelationCreationSuccess(name: String, rid: Int)
+    case class ObjectCreationSuccess(name: String, id: UUID)
     case class OperationSuccess(message: String)
     case class OperationFailure(reason: String)
 
@@ -56,6 +61,7 @@ object GraphDb {
     var latestRid = 0
 
     var nodeMap: Map[UUID, Node] = Map()
+//    var type2NodesMap: Map[String, Set[Node]] = Map()
 
     override def persistenceId: String = "graph-db"
 
@@ -67,6 +73,7 @@ object GraphDb {
           case None =>
             persist(typeCreation){ _ =>
               typeMap += (typeName -> attributes)
+              sender() ! OperationSuccess(s"Type $typeName successfully created")
               log.info(s"Persisted $typeCreation")
             }
         }
@@ -80,6 +87,7 @@ object GraphDb {
                 persist(addAttr){ _ =>
                   val newAttrMap = attrMap + (attrName -> attrType)
                   typeMap = typeMap + (typeName -> newAttrMap)
+                  sender() ! OperationSuccess(s"Attribute $attrName successfully added")
                   log.info(s"Persisted $addAttr")
                 }
             }
@@ -101,6 +109,7 @@ object GraphDb {
                     val newNode = node.copy(fields = newFields)
                     nodeMap += (newNode.id -> newNode)
                   }
+                  sender() ! OperationSuccess(s"Type $typeName successfully deleted")
                   log.info(s"Persisted $deleteAttr")
                 }
               case None =>
@@ -117,6 +126,7 @@ object GraphDb {
 
         persist(RTypeCreated(latestRid, relationName, ownerTypeName, targetTypes)){ e =>
           relationMap += (latestRid -> Relation(latestRid, relationName, ownerTypeName, targetTypes))
+          sender() ! RelationCreationSuccess(s"Relation $relationName successfully created", latestRid)
           latestRid += 1;
           log.info(s"Persisted $e")
         }
@@ -126,7 +136,12 @@ object GraphDb {
             // TODO: validate attributes
             val id = UUID.randomUUID()
             persist(NodeCreated(id, typeName, attributes)){ _ =>
-              nodeMap += id -> Node(id, typeName, attributes)
+              val nodeToAdd = Node(id, typeName, attributes)
+              nodeMap += id -> nodeToAdd
+//              val nodesOfType = type2NodesMap.getOrElse(typeName, Set.empty[Node])
+//              type2NodesMap += typeName -> (nodesOfType + nodeToAdd)
+
+              sender() ! ObjectCreationSuccess(s"Node successfully created", id)
               log.info(s"Persisted $AddNode with id: $id")
             }
           case None =>
@@ -140,6 +155,7 @@ object GraphDb {
               val newAttributes = node.fields ++ attributes
               val newNode = node.copy(fields = newAttributes)
               nodeMap += (newNode.id -> newNode)
+              sender() ! OperationSuccess(s"Attribute(s) successfully updated")
               log.info(s"Persisted UpdateAttOnNode $newNode")
             }
           case None =>
@@ -153,6 +169,7 @@ object GraphDb {
               val newAttributes = node.fields -- attributes
               val newNode = node.copy(fields = newAttributes)
               nodeMap += (newNode.id -> newNode)
+              sender() ! OperationSuccess(s"Attribute(s) successfully deleted")
               log.info(s"Persisted DeleteAttFromNode $newNode")
             }
           case None =>
@@ -172,11 +189,25 @@ object GraphDb {
                 tarNode <- nodeMap.get(tarNodeId)
               } nodeMap += tarNodeId -> tarNode.copy(linksToThis = tarNode.linksToThis + link)
 
+              sender() ! ObjectCreationSuccess(s"Link successfully created", id)
+
               log.info(s"Persisted LinkMsg $newNode")
             }
           case None =>
             sender() ! OperationFailure(s"Invalid node id $ownerNodeId !")
         }
+      case q @ Query(constraint @ Constraint(typeName, attrMap)) =>
+        val res = query(constraint)
+        log.info(s"constraint: $constraint, query result: $res")
+        sender() ! QueryResult(res)
+
+//        type2NodesMap.get(typeName) match {
+//          case Some(nodes) =>
+//            val res = query(nodes, attrMap)
+//            log.info(s"constraint: $constraint, query result: $res")
+//            sender() ! QueryResult(res)
+//          case None => sender() ! QueryResult(Seq.empty[Node])
+//        }
 
       case Shutdown => context.stop(self)
       case message => log.info(message.toString)
@@ -211,7 +242,10 @@ object GraphDb {
         latestRid = rid + 1;
         log.info(s"Recoverd relation [$rid] $rName, ownerType: $ownerType")
       case NodeCreated(id, typeName, attributes) =>
-        nodeMap += id -> Node(id, typeName, attributes)
+        val newNode = Node(id, typeName, attributes)
+        nodeMap += id -> newNode
+//        val nodesOfType = type2NodesMap.getOrElse(typeName, Set.empty[Node])
+//        type2NodesMap += typeName -> (nodesOfType + newNode)
         log.info(s"Recoverd NodeCreated $typeMap\n\tnodes: $nodeMap")
       case UpdateAttOnNode(nodeId, attributes) =>
         val node = nodeMap.getOrElse(nodeId, Node())
@@ -237,10 +271,99 @@ object GraphDb {
 
         log.info(s"Recoverd LinkAdded $newNode")
     }
-
     // TODO handle persist failure/rejection
+
+    private def query(constraint: Constraint): Seq[Node] = {
+      val nodes = getNodesOfType(constraint.typeName)
+      if(nodes.size == 0) Seq.empty[Node]
+      else {
+        query(nodes, constraint.attrMap)
+      }
+//      type2NodesMap.get(constraint.typeName) match {
+//        case Some(nodes) =>
+//          query(nodes, constraint.attrMap)
+//        case None => Seq.empty[Node]
+//      }
+    }
+
+    private def query(nodes: Set[Node], attrMap: Map[String, Any]): Seq[Node] = {
+      var nodes2 = Set() ++ nodes
+
+      attrMap.get("_Type") match {
+        case Some(typeName) =>
+          nodes2 = nodes2.filter(n => n.typeName == typeName)
+        case None =>
+      }
+      attrMap.get("_OnLinkSrc") match {
+        case Some(RConstraint(rid, None, Seq())) =>
+          nodes2 = nodes2.filter(n =>
+            n.linksOwned.exists(link => link.rid == rid)
+          )
+        case Some(RConstraint(rid, Some(ownerId), Seq())) =>
+          nodes2 = nodes2.filter(n =>
+            n.id == ownerId &&
+            n.linksOwned.exists(link => link.rid == rid)
+          )
+        case Some(RConstraint(rid, None, tar @ Seq(_))) =>
+          nodes2 = nodes2.filter(n =>
+            n.linksOwned.exists(link => link.rid == rid && link.targetNodes == tar)
+          )
+        case _ =>
+      }
+      attrMap.get("_OnLinkTarget") match {
+        case Some(RConstraint(rid, None, Seq())) =>
+          val nodesToCheck = nodes2
+          nodes2 = Set.empty[Node]
+          nodesToCheck.foreach(n =>
+            if(n.linksToThis.exists(link => link.rid == rid)){
+              nodes2 += n
+            }
+          )
+        case Some(RConstraint(rid, Some(ownerId), Seq())) =>
+          val nodesToCheck = nodes2
+          nodes2 = Set.empty[Node]
+          nodesToCheck.foreach(n =>
+            if(n.linksToThis.exists(link => link.rid == rid && link.ownerId == ownerId)){
+              nodes2 += n
+            }
+          )
+        case Some(RConstraint(rid, None, tar @ Seq(_))) =>
+//          nodes2 = nodes.filter(n =>
+//            n.linksOwned.exists(link => link.rid == rid && link.targetNodes == tar)
+//          )
+        case _ =>
+      }
+
+
+      for(entry <- attrMap) entry match {
+        case (attrName, c @ Constraint(_, _)) =>
+          val consNodes = query(c)
+          val currentRes = nodes2
+          nodes2 = Set.empty[Node]
+          for(n <- consNodes) {
+            nodes2 ++= query(currentRes, Map[String, Any](attrName -> n))
+          }
+        case (attrName, attrValue) =>
+          nodes2 = nodes2.filter(n => n.fields.getOrElse(attrName, null) == attrValue)
+      }
+
+      nodes2.toSeq
+    }
+
+    private def getNodesOfType(typeName: String): Set[Node] = {
+      nodeMap.values.filter(n => n.typeName == typeName).toSet
+    }
   }
 
+  /*
+  object GraphDatabase extends App {
+    class GraphDbWorker extends Actor {
+      override def receive: Receive = ???
+    }
+
+    val system = ActorSystem("graphDb", ConfigFactory.load().getConfig("nigelTest"))
+    val dbMaster = system.actorOf(FromConfig.props(Props[GraphDbWorker]), "workerRouter")
+  }*/
 //  def main(args: Array[String]){
 //    import graphdb.GraphDb.GraphDbStore._
 //

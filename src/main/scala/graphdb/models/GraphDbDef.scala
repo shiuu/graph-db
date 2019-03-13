@@ -24,9 +24,12 @@ object GraphDbDef {
     */
   case class Node(id: UUID = null,
                   typeName: String = "",
-                  fields: Map[String, Any] = Map(),
+                  fields: Map[String, Any] = Map.empty[String, Any],
                   //                  links: Map[Int, Link] = Map()
                   linksOwned:     Set[Link] = Set(),
                   linksToThis:    Set[Link] = Set()
                  )
+
+  case class Constraint(typeName: String, attrMap: Map[String, Any])
+  case class RConstraint(rid: Int, ownerNodeId: Option[UUID], targetNodes: Seq[UUID])
 }
