@@ -30,6 +30,29 @@ object GraphDbDef {
                   linksToThis:    Set[Link] = Set()
                  )
 
+  /**
+    * Constraint for query
+    * @param typeName Type to query on
+    * @param attrMap Map from attribute name to attribute value or constraint.
+    *                "_Type", "_OnLinkSrc" and "_OnLinkTarget" system reserved attributes
+    *                which are name of the type, link that owned by a node (nodeId indicated by
+    *                value of the entry) and link that points to the value
+    */
   case class Constraint(typeName: String, attrMap: Map[String, Any])
+
+  /**
+    * Relation constraint for query
+    * @param rid
+    * @param ownerNodeId
+    * @param targetNodes
+    */
   case class RConstraint(rid: Int, ownerNodeId: Option[UUID], targetNodes: Seq[UUID])
+
+  /**
+    * Higher order relation constraint
+    * @param rid
+    * @param ownerNodeId
+    * @param cons
+    */
+  case class HORConstraint(rid: Int, ownerNodeId: Option[UUID], cons: Constraint)
 }
