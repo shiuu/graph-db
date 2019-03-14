@@ -17,36 +17,38 @@ object GraphDbDef {
 
   /**
     * A node is a vertex in the graph, also an object this is stored in the graph db.
-    * @param id Id of the node.
-    * @param fields A map from field name to the value of the field.
-    * @param links links contains all the directed edges that starts from this node. It
-    *              is a map from relation id to Link.
+    *
+    * @param id         Node Id.
+    * @param typeName
+    * @param fields     A map from field name to the value of the field.
+    * @param linksOwned linksOwned contains all the directed edges that starts from this node.
+    * @param linksToThis linksOwned contains all the edges that directs to this node.
     */
   case class Node(id: UUID = null,
                   typeName: String = "",
-                  fields: Map[String, Any] = Map.empty[String, Any],
-                  //                  links: Map[Int, Link] = Map()
+                  fields: Map[String, Any] = Map(),
                   linksOwned:     Set[Link] = Set(),
                   linksToThis:    Set[Link] = Set()
                  )
 
-  /**
-    * Constraint for query
-    * @param typeName Type to query on
-    * @param attrMap Map from attribute name to attribute value or constraint.
-    *                "_Type", "_OnLinkSrc" and "_OnLinkTarget" system reserved attributes
-    *                which are name of the type, link that owned by a node (nodeId indicated by
+  /** The constraint in a query */
+  abstract class Constraint
+
+  /** The constraint on nodes.
+    * @param typeName the type to query on
+    * @param attrMap a map from attribute name to attribute value or constraint.
+    *                "_Type", "_OnLinkSrc" and "_OnLinkTarget" are system reserved attributes
+    *                which stand for name of the type, link that owned by a node (nodeId indicated by
     *                value of the entry) and link that points to the value
     */
-  case class Constraint(typeName: String, attrMap: Map[String, Any])
+  case class NodeConstraint(typeName: String, attrMap: Map[String, Any]) extends Constraint
 
-  /**
-    * Relation constraint for query
-    * @param rid
+  /** Relation constraint for query
+    * @param rid Relation Id
     * @param ownerNodeId
     * @param targetNodes
     */
-  case class RConstraint(rid: Int, ownerNodeId: Option[UUID], targetNodes: Seq[UUID])
+  case class RConstraint(rid: Int, ownerNodeId: Option[UUID], targetNodes: Seq[UUID]) extends Constraint
 
   /**
     * Higher order relation constraint
@@ -55,4 +57,6 @@ object GraphDbDef {
     * @param cons
     */
   case class HORConstraint(rid: Int, ownerNodeId: Option[UUID], cons: Constraint)
+
+  // TODO Need higher order node constraint
 }

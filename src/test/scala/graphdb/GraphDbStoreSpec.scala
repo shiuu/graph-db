@@ -5,7 +5,7 @@ import java.util.UUID
 import akka.actor.{ActorSystem, Props}
 import akka.testkit.{ImplicitSender, TestKit}
 import graphdb.models.FieldType
-import graphdb.models.GraphDbDef.{Constraint, HORConstraint, RConstraint}
+import graphdb.models.GraphDbDef.{NodeConstraint, HORConstraint, RConstraint}
 import org.scalatest.{BeforeAndAfterAll, WordSpecLike}
 
 class GraphDbStoreSpec extends TestKit(ActorSystem("GraphDbStoreSpec"))
@@ -66,7 +66,7 @@ class GraphDbStoreSpec extends TestKit(ActorSystem("GraphDbStoreSpec"))
       dbActor ! LinkMsg(bobId, friendship.rid, List(danId))
       expectMsgType[ObjectCreationSuccess]
 
-      val cons = Constraint("Employee",
+      val cons = NodeConstraint("Employee",
         Map("_OnLinkTarget" -> RConstraint(friendship.rid, Some(bobId), Seq.empty[UUID])))
 
       dbActor ! Query(cons)
@@ -80,29 +80,32 @@ class GraphDbStoreSpec extends TestKit(ActorSystem("GraphDbStoreSpec"))
       // Add Business node Telstra Qantas and TNT
       dbActor ! AddNode("Business", Map("Name" -> "Telstra", "Location" -> "CBD"))
       val telstraMsg = expectMsgType[ObjectCreationSuccess]
+      val telstraId = telstraMsg.id
       dbActor ! AddNode("Business", Map("Name" -> "Qantas", "Location" -> "Mascot"))
       val qantasMsg = expectMsgType[ObjectCreationSuccess]
+      val qantasId = qantasMsg.id
       dbActor ! AddNode("Business", Map("Name" -> "TNT", "Location" -> "Mascot"))
       val tntMsg = expectMsgType[ObjectCreationSuccess]
+      val tntId = tntMsg.id
 
       // Define EmployedBy relation
       dbActor ! CreateRelation("EmployedBy", "Employee", List("Business"))
       val employedBy = expectMsgType[RelationCreationSuccess]
 
       // Alice works for Telstra
-      dbActor ! LinkMsg(aliceId, employedBy.rid, List(telstraMsg.id))
+      dbActor ! LinkMsg(aliceId, employedBy.rid, List(telstraId))
       expectMsgType[ObjectCreationSuccess]
 
       // Bob works for Qantas
-      dbActor ! LinkMsg(bobId, employedBy.rid, List(qantasMsg.id))
+      dbActor ! LinkMsg(bobId, employedBy.rid, List(qantasId))
       expectMsgType[ObjectCreationSuccess]
 
       // Dan works for Qantas
-      dbActor ! LinkMsg(danId, employedBy.rid, List(qantasMsg.id))
+      dbActor ! LinkMsg(danId, employedBy.rid, List(qantasId))
       expectMsgType[ObjectCreationSuccess]
 
       // List all employed person
-      val empCons = Constraint("Employee",
+      val empCons = NodeConstraint("Employee",
         Map("_OnLinkSrc" -> RConstraint(employedBy.rid, None, Seq.empty[UUID])))
 
       dbActor ! Query(empCons)
@@ -116,13 +119,13 @@ class GraphDbStoreSpec extends TestKit(ActorSystem("GraphDbStoreSpec"))
       assert(repliedEmployeeIds.contains(danId))
 
       // Chen works for TNT
-      dbActor ! LinkMsg(chenId, employedBy.rid, List(tntMsg.id))
+      dbActor ! LinkMsg(chenId, employedBy.rid, List(tntId))
       expectMsgType[ObjectCreationSuccess]
 
       // Query all persons employed by a business located in Mascot
-      val locationCons = Constraint("Business",
+      val locationCons = NodeConstraint("Business",
         Map("Location" -> "Mascot"))
-      val empLocCons = Constraint("Employee",
+      val empLocCons = NodeConstraint("Employee",
         Map("_OnLinkSrc" -> HORConstraint(employedBy.rid, None, locationCons)))
 
       dbActor ! Query(empLocCons)

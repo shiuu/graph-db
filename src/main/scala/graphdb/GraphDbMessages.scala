@@ -3,7 +3,7 @@ package graphdb
 import java.util.UUID
 
 import graphdb.models.FieldType
-import graphdb.models.GraphDbDef.{Constraint, Node}
+import graphdb.models.GraphDbDef.{NodeConstraint, Node}
 
 final case class CreateType(name: String, attributes: Map[String, FieldType])
 //final case class GetType(name: String)
@@ -34,14 +34,14 @@ final case class CreateRelation(relationName: String, ownerTypeName: String, tar
 
 /**
   * Add a directional relation from an node to one or more nodes.
-  * @param ownerNode The source of the directional relation.
+  * @param ownerNodeId The source of the directional relation.
   * @param relationId
   * @param targetNodes The target of the
   */
 final case class LinkMsg(ownerNodeId: UUID, relationId: Int, targetNodes: Seq[UUID])
 final case class UnlinkByLinkId(linkId: UUID)
 
-final case object Shutdown
+case object Shutdown
 
 // EVENT
 
@@ -67,11 +67,11 @@ final case class NodeCreated(id: UUID, typeName: String, attributes: Map[String,
   *
   * @param id Id of this Link
   * @param relationId
-  * @param nodeName
-  * @param targetList
+  * @param ownerNodeId
+  * @param targetNodes
   */
 final case class LinkAdded(id: UUID, relationId: Int, ownerNodeId: UUID, targetNodes: Seq[UUID])
 
 // Query
-final case class Query(constraint: Constraint)
+final case class Query(constraint: NodeConstraint)
 final case class QueryResult(nodes: Seq[Node])

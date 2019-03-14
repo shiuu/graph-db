@@ -4,8 +4,6 @@ import java.util.UUID
 
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import akka.persistence.PersistentActor
-//import akka.routing.FromConfig
-//import com.typesafe.config.ConfigFactory
 import graphdb.models._
 import graphdb.models.GraphDbDef._
 
@@ -19,7 +17,6 @@ class GraphDbStore extends PersistentActor with ActorLogging {
   var latestRid = 0
 
   var nodeMap: Map[UUID, Node] = Map()
-//    var type2NodesMap: Map[String, Set[Node]] = Map()
 
   override def persistenceId: String = "graph-db"
 
@@ -85,7 +82,7 @@ class GraphDbStore extends PersistentActor with ActorLogging {
       persist(RTypeCreated(latestRid, relationName, ownerTypeName, targetTypes)){ e =>
         relationMap += (latestRid -> Relation(latestRid, relationName, ownerTypeName, targetTypes))
         sender() ! RelationCreationSuccess(s"Relation $relationName successfully created", latestRid)
-        latestRid += 1;
+        latestRid += 1
         log.info(s"Persisted $e")
       }
     case AddNode(typeName, attributes) =>
@@ -96,9 +93,6 @@ class GraphDbStore extends PersistentActor with ActorLogging {
           persist(NodeCreated(id, typeName, attributes)){ _ =>
             val nodeToAdd = Node(id, typeName, attributes)
             nodeMap += id -> nodeToAdd
-//              val nodesOfType = type2NodesMap.getOrElse(typeName, Set.empty[Node])
-//              type2NodesMap += typeName -> (nodesOfType + nodeToAdd)
-
             sender() ! ObjectCreationSuccess(s"Node successfully created", id)
             log.info(s"Persisted $AddNode with id: $id")
           }
@@ -154,25 +148,16 @@ class GraphDbStore extends PersistentActor with ActorLogging {
         case None =>
           sender() ! OperationFailure(s"Invalid node id $ownerNodeId !")
       }
-    case q @ Query(constraint @ Constraint(typeName, attrMap)) =>
+    case q @ Query(constraint @ NodeConstraint(typeName, attrMap)) =>
       val res = query(constraint)
       log.info(s"constraint: $constraint, query result: $res")
       sender() ! QueryResult(res)
-
-//        type2NodesMap.get(typeName) match {
-//          case Some(nodes) =>
-//            val res = query(nodes, attrMap)
-//            log.info(s"constraint: $constraint, query result: $res")
-//            sender() ! QueryResult(res)
-//          case None => sender() ! QueryResult(Seq.empty[Node])
-//        }
 
     case Shutdown => context.stop(self)
     case message => log.info(message.toString)
   }
 
-  /**
-    * Handler that will be called on recovery
+  /** Handler that will be called on recovery
     */
   override def receiveRecover: Receive = {
     case CreateType(typeName, attributes) =>
@@ -197,13 +182,11 @@ class GraphDbStore extends PersistentActor with ActorLogging {
       log.info(s"Recoverd DeleteAttFromType $typeMap\n\tnodes: $nodeMap")
     case RTypeCreated(rid, rName, ownerType, targetList) =>
       relationMap += (rid -> Relation(rid, rName, ownerType, targetList))
-      latestRid = rid + 1;
+      latestRid = rid + 1
       log.info(s"Recoverd relation [$rid] $rName, ownerType: $ownerType")
     case NodeCreated(id, typeName, attributes) =>
       val newNode = Node(id, typeName, attributes)
       nodeMap += id -> newNode
-//        val nodesOfType = type2NodesMap.getOrElse(typeName, Set.empty[Node])
-//        type2NodesMap += typeName -> (nodesOfType + newNode)
       log.info(s"Recoverd NodeCreated $typeMap\n\tnodes: $nodeMap")
     case UpdateAttOnNode(nodeId, attributes) =>
       val node = nodeMap.getOrElse(nodeId, Node())
@@ -231,21 +214,16 @@ class GraphDbStore extends PersistentActor with ActorLogging {
   }
   // TODO handle persist failure/rejection
 
-  private def query(constraint: Constraint): Seq[Node] = {
+  private def query(constraint: NodeConstraint): Seq[Node] = {
     val nodes = getNodesOfType(constraint.typeName)
-    if(nodes.size == 0) Seq.empty[Node]
+    if(nodes.isEmpty) Seq.empty[Node]
     else {
       query(nodes, constraint.attrMap)
     }
-//      type2NodesMap.get(constraint.typeName) match {
-//        case Some(nodes) =>
-//          query(nodes, constraint.attrMap)
-//        case None => Seq.empty[Node]
-//      }
   }
 
   private def query(nodes: Set[Node], attrMap: Map[String, Any]): Seq[Node] = {
-    var nodes2 = Set() ++ nodes
+    var nodes2 = Set.empty[Node] ++ nodes
 
     attrMap.get("_Type") match {
       case Some(typeName) =>
@@ -266,12 +244,12 @@ class GraphDbStore extends PersistentActor with ActorLogging {
         nodes2 = nodes2.filter(n =>
           n.linksOwned.exists(link => link.rid == rid && link.targetNodes == tar)
         )
-      case Some(HORConstraint(rid, None, cons @ Constraint(typeName, attrMap))) =>
+      case Some(HORConstraint(rid, None, cons @ NodeConstraint(_, _))) =>
         val leftNodes = query(cons).map(n => n.id)
         nodes2 = nodes2.filter(n =>
-          n.linksOwned.exists(link => link.rid == rid && leftNodes.contains(link.targetNodes(0)))
+          n.linksOwned.exists(link => link.rid == rid && leftNodes.contains(link.targetNodes.head))
         )
-      case _ =>
+      case _ => // TODO more cases to process
     }
     attrMap.get("_OnLinkTarget") match {
       case Some(RConstraint(rid, None, Seq())) =>
@@ -290,7 +268,7 @@ class GraphDbStore extends PersistentActor with ActorLogging {
             nodes2 += n
           }
         )
-      case Some(RConstraint(rid, None, tar @ Seq(_))) =>
+//      case Some(RConstraint(rid, None, tar @ Seq(_))) =>
 //          nodes2 = nodes.filter(n =>
 //            n.linksOwned.exists(link => link.rid == rid && link.targetNodes == tar)
 //          )
@@ -299,14 +277,14 @@ class GraphDbStore extends PersistentActor with ActorLogging {
 
 
     for(entry <- attrMap) entry match {
-      case (attrName, c @ Constraint(_, _)) =>
+      case (attrName, c @ NodeConstraint(_, _)) =>
         val consNodes = query(c)
         val currentRes = nodes2
         nodes2 = Set.empty[Node]
         for(n <- consNodes) {
           nodes2 ++= query(currentRes, Map[String, Any](attrName -> n))
         }
-      case (attrName, attrValue) if (isNotSysAttribute(attrName)) =>
+      case (attrName, attrValue) if isNotSysAttribute(attrName) =>
         nodes2 = nodes2.filter(n => n.fields.getOrElse(attrName, null) == attrValue)
       case _ =>
     }
