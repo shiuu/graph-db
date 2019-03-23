@@ -10,7 +10,7 @@ lazy val leveldbjniVersion = "1.8"
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-persistence" % akkaVersion,
-  "com.typesafe.akka" %% "akka-cluster" % akkaVersion,
+//  "com.typesafe.akka" %% "akka-cluster" % akkaVersion,
   "com.typesafe.akka" %% "akka-testkit" % akkaVersion,
 
   // local levelDB stores

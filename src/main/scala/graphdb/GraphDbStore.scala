@@ -148,7 +148,7 @@ class GraphDbStore extends PersistentActor with ActorLogging {
         case None =>
           sender() ! OperationFailure(s"Invalid node id $ownerNodeId !")
       }
-    case q @ Query(constraint @ NodeConstraint(typeName, attrMap)) =>
+    case Query(constraint @ NodeConstraint(typeName, attrMap)) =>
       val res = query(constraint)
       log.info(s"constraint: $constraint, query result: $res")
       sender() ! QueryResult(res)
@@ -217,6 +217,9 @@ class GraphDbStore extends PersistentActor with ActorLogging {
   private def query(constraint: NodeConstraint): Seq[Node] = {
     val nodes = getNodesOfType(constraint.typeName)
     if(nodes.isEmpty) Seq.empty[Node]
+    else if(constraint.attrMap.isEmpty) {
+      nodes.toSeq
+    }
     else {
       query(nodes, constraint.attrMap)
     }
